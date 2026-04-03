@@ -132,3 +132,22 @@ Description:
 {description}
 
 Respond with ONLY the 5 bullet points, each on its own line starting with "- "."""
+
+# LLM Validator Prompt
+VALIDATOR_PROMPT = """Evaluate this product description for grammar, tone, and overall quality.
+
+Product Name: {product_name}
+Category: {category}
+
+Description to evaluate:
+{description}
+
+Rate the description on:
+1. Grammar quality (1-10 scale)
+2. Tone appropriateness for the category (1-10 scale)
+3. Identify any specific issues
+
+Respond with ONLY a JSON object in this exact format:
+{{"passed": <boolean>, "grammar_score": <integer 1-10>, "tone_score": <integer 1-10>, "issues": [<list of strings>], "suggestion": "<string>"}}
+
+Threshold for passing: grammar_score >= 7 AND tone_score >= 7"""

@@ -1,11 +1,15 @@
 """Page 2: Review - Review and edit generated descriptions."""
 
 from typing import Dict, Any, List
+import json
 
 import pandas as pd
 import streamlit as st
 
+from core.database import save_product, update_product_status, get_product
 from core.pipeline import generate_description
+from core.prompts import VALIDATOR_PROMPT
+from core.llm_client import llm
 
 
 def initialize_page_state():
@@ -116,6 +120,45 @@ def filter_results(results: List[Dict], filters: Dict[str, Any]) -> List[Dict]:
     return filtered
 
 
+def run_validator(description: str, product_name: str, category: str) -> dict:
+    """Run the LLM validator on a description.
+
+    Args:
+        description: The product description to validate
+        product_name: Name of the product
+        category: Product category
+
+    Returns:
+        Dict with validation results
+    """
+    prompt = VALIDATOR_PROMPT.format(
+        description=description,
+        product_name=product_name,
+        category=category
+    )
+
+    try:
+        response = llm.invoke(prompt)
+        response_text = response.content if hasattr(response, "content") else str(response)
+
+        # Parse JSON response
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        result = json.loads(response_text)
+        return result
+    except Exception as e:
+        return {
+            "passed": False,
+            "grammar_score": 0,
+            "tone_score": 0,
+            "issues": [f"Validation error: {str(e)}"],
+            "suggestion": "Please retry validation"
+        }
+
+
 def render_result_card(result: Dict[str, Any], index: int):
     """Render a single result card."""
     score = result["quality_score"]
@@ -179,11 +222,92 @@ def render_result_card(result: Dict[str, Any], index: int):
         st.markdown(f"**Score**: {score}/10")
         st.markdown(f"**Reason**: {result.get('quality_reason', 'No feedback available')}")
 
+        # Action buttons: Approve and Edit
+        st.markdown("#### Actions")
+        action_col1, action_col2, action_col3 = st.columns([1, 1, 3])
+
+        with action_col1:
+            if st.button("✅ Approve as is", key=f"approve_{result['sku_id']}"):
+                approve_product(result)
+
+        with action_col2:
+            if st.button("✏️ Edit", key=f"edit_{result['sku_id']}"):
+                st.session_state.edit_product_sku = result["sku_id"]
+                st.switch_page("pages/4_Edit.py")
+
         # Regenerate button
-        col1, col2 = st.columns([1, 5])
-        with col1:
+        with action_col3:
             if st.button("🔄 Regenerate", key=f"regenerate_{result['sku_id']}"):
                 regenerate_single_product(result)
+
+
+def approve_product(result: Dict[str, Any]):
+    """Run validator and approve product if it passes."""
+    with st.spinner("Running LLM validator..."):
+        validation_result = run_validator(
+            description=result.get("description_long", ""),
+            product_name=result.get("product_name", "Unknown"),
+            category=result.get("category", "General")
+        )
+
+        # Show validation results
+        st.markdown("### Validation Results")
+
+        if validation_result.get("passed"):
+            st.success("✅ **PASSED** - Description meets quality standards!")
+        else:
+            st.error("❌ **FAILED** - Description has issues")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            grammar_score = validation_result.get("grammar_score", 0)
+            if grammar_score >= 7:
+                st.metric("Grammar Score", f"{grammar_score}/10", delta="✓ Pass")
+            else:
+                st.metric("Grammar Score", f"{grammar_score}/10", delta="✗ Below threshold", delta_color="inverse")
+
+        with col2:
+            tone_score = validation_result.get("tone_score", 0)
+            if tone_score >= 7:
+                st.metric("Tone Score", f"{tone_score}/10", delta="✓ Pass")
+            else:
+                st.metric("Tone Score", f"{tone_score}/10", delta="✗ Below threshold", delta_color="inverse")
+
+        if validation_result.get("issues"):
+            st.markdown("#### Issues Found:")
+            for issue in validation_result["issues"]:
+                st.write(f"- {issue}")
+
+        if validation_result.get("suggestion"):
+            st.info(f"💡 **Suggestion**: {validation_result['suggestion']}")
+
+        # Confirm approval
+        if validation_result.get("passed"):
+            # Save to database with approved status
+            save_data = {
+                "sku_id": result["sku_id"],
+                "product_name": result["product_name"],
+                "category": result["category"],
+                "description_long": result.get("description_long", ""),
+                "description_bullets": result.get("description_bullets", ""),
+                "conversion_hook": result.get("conversion_hook", ""),
+                "quality_score": result.get("quality_score"),
+                "features": result.get("usps", []),
+                "status": "approved"
+            }
+            save_product(save_data)
+            st.success("Product approved and saved to database!")
+
+            # Update session state results
+            for i, r in enumerate(st.session_state.results):
+                if r["sku_id"] == result["sku_id"]:
+                    st.session_state.results[i]["status"] = "approved"
+                    break
+
+            if st.button("Continue"):
+                st.rerun()
+        else:
+            st.warning("Description did not pass validation. Please edit and improve it before approving.")
 
 
 def regenerate_single_product(original_result: Dict[str, Any]):
