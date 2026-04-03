@@ -1,0 +1,120 @@
+
+● Project Flow & Structure
+
+  Entry Point: app.py (Home Screen)
+
+  User Opens App
+         │
+         ▼
+  ┌─────────────────────────────────────┐
+  │  Two Entry Buttons:                 │
+  │  ┌──────────────┐ ┌──────────────┐ │
+  │  │ AI Agent     │ │ Manual Entry │ │
+  │  │ (batch)      │ │ (form)       │ │
+  │  └──────────────┘ └──────────────┘ │
+  │                                     │
+  │  Search Bar → queries products.db   │
+  │  Products Table → from DB           │
+  └─────────────────────────────────────┘
+
+  ---
+  Flow 1: AI Agent (Batch)
+
+  app.py → "AI Agent (batch)" button
+                │
+                ▼
+  ┌─────────────────────────────────────────┐
+  │ pages/1_Generate.py                     │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ 1. Upload CSV / Use Synthetic Data  │ │
+  │ │ 2. Select Tone (Professional, etc.) │ │
+  │ │ 3. Optional: Analyze Brand Voice    │ │
+  │ │ 4. Click "Generate Descriptions"    │ │
+  │ │    → calls core/pipeline.py         │ │
+  │ │    → LLM generates for each product │ │
+  │ │    → stores in session state        │ │
+  │ └─────────────────────────────────────┘ │
+  └─────────────────────────────────────────┘
+                │
+                ▼
+  ┌─────────────────────────────────────────┐
+  │ pages/2_Review.py                       │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ - View all generated descriptions   │ │
+  │ │ - Filter by category/quality        │ │
+  │ │ - "Approve as is" → runs validator  │ │
+  │ │                    → saves to DB    │ │
+  │ │ - "Edit" → goes to 4_Edit.py       │ │
+  │ │ - "Regenerate" → retry LLM          │ │
+  │ └─────────────────────────────────────┘ │
+  └─────────────────────────────────────────┘
+                │
+                ▼
+  ┌─────────────────────────────────────────┐
+  │ pages/3_Export.py                       │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ - Download as CSV                   │ │
+  │ │ - Options: full data, long desc,   │ │
+  │ │   or bullet points only             │ │
+  │ └─────────────────────────────────────┘ │
+  └─────────────────────────────────────────┘
+
+  ---
+  Flow 2: Manual Entry
+
+  app.py → "Manual Entry" button
+                │
+                ▼
+  ┌─────────────────────────────────────────┐
+  │ app.py (expanded form)                  │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ Fields: name, category, brand,      │ │
+  │ │ price, features, specs, audience    │ │
+  │ │                                     │ │
+  │ │ "Save to Database"                  │ │
+  │ │ → saves with status="manual_draft"  │ │
+  │ │                                     │ │
+  │ │ "Generate Description" button       │ │
+  │ │ → Navigate to 1_Generate.py         │ │
+  │ └─────────────────────────────────────┘ │
+  └─────────────────────────────────────────┘
+                │
+                ▼
+          products.db updated
+
+  ---
+  Flow 3: Edit & Validate
+
+  2_Review.py → "Edit" button
+                │
+                ▼
+  ┌─────────────────────────────────────────┐
+  │ pages/4_Edit.py                         │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ - Editable text_area (description)  │ │
+  │ │ - "Run LLM Validator" button        │ │
+  │ │   → shows grammar_score, tone_score │ │
+  │ │   → pass/fail badge + issues list   │ │
+  │ │                                     │ │
+  │ │ - "Save to DB" (disabled until      │ │
+  │ │    validator runs, only if passed)  │ │
+  │ │ - "Override & Save" (saves with     │ │
+  │ │   status="needs_review" anyway)     │ │
+  │ └─────────────────────────────────────┘ │
+  └─────────────────────────────────────────┘
+                │
+                ▼
+          products.db updated
+
+  ---
+  Database (products.db)
+
+  All flows eventually save here:
+  ┌────────────────────────────────────────┐
+  │ products table                         │
+  │ - id, sku_id, product_name, category   │
+  │ - features, description_long           │
+  │ - description_bullets, conversion_hook │
+  │ - quality_score, status                │
+  │ - created_at, updated_at               │
+  └────────────────────────────────────────┘
