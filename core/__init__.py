@@ -1,0 +1,1 @@
+# DescribeIt AI Core Module
