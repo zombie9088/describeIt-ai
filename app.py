@@ -131,7 +131,8 @@ def initialize_session_state():
         "selected_tone": "Professional",
         "validation_report": None,
         "quality_threshold": 7,
-        "consistency_warnings": []
+        "consistency_warnings": [],
+        "show_manual_entry": False
     }
 
     for key, value in defaults.items():
