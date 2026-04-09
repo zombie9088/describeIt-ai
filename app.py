@@ -7,7 +7,9 @@ from datetime import datetime
 from core.database import init_db, get_all_products, search_products, save_product, update_product_status
 from core.pipeline import generate_description
 from core.prompts import VALIDATOR_PROMPT
-from core.llm_client import llm
+from core.llm_client import get_ollama_client
+
+ollama = get_ollama_client()
 
 # Initialize database on startup
 init_db()
@@ -159,8 +161,7 @@ def run_validator(description: str, product_name: str, category: str) -> dict:
 
     try:
         import json
-        response = llm.invoke(prompt)
-        response_text = response.content if hasattr(response, "content") else str(response)
+        response_text = ollama.generate(prompt)
 
         # Parse JSON response
         if "```json" in response_text:

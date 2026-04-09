@@ -9,7 +9,9 @@ import streamlit as st
 from core.database import save_product, update_product_status, get_product
 from core.pipeline import generate_description
 from core.prompts import VALIDATOR_PROMPT
-from core.llm_client import llm
+from core.llm_client import get_ollama_client
+
+ollama = get_ollama_client()
 
 
 def initialize_page_state():
@@ -138,8 +140,7 @@ def run_validator(description: str, product_name: str, category: str) -> dict:
     )
 
     try:
-        response = llm.invoke(prompt)
-        response_text = response.content if hasattr(response, "content") else str(response)
+        response_text = ollama.generate(prompt)
 
         # Parse JSON response
         if "```json" in response_text:

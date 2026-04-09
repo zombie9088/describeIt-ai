@@ -8,7 +8,7 @@ import streamlit as st
 
 from core.preprocessor import preprocess
 from core.synthetic_data import generate_synthetic_catalog, load_catalog
-from core.pipeline import run_batch, check_batch_consistency, analyze_brand_voice
+from core.pipeline import run_batch, check_batch_consistency, analyze_brand_voice, set_cache_enabled, get_cache_stats
 from core.prompts import TONE_PROMPTS
 
 
@@ -252,7 +252,7 @@ def render_generation_config():
     """Render the generation configuration section."""
     st.markdown("### Generation Configuration")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         tone = st.selectbox(
@@ -273,12 +273,35 @@ def render_generation_config():
         )
         st.session_state.quality_threshold = quality_threshold
 
+    with col3:
+        concurrency = st.slider(
+            "Parallel Processing",
+            min_value=1,
+            max_value=10,
+            value=5,
+            help="Number of products to generate in parallel"
+        )
+
+    # Cache toggle
+    cache_stats = get_cache_stats()
+    col_cache1, col_cache2 = st.columns([3, 1])
+    with col_cache1:
+        enable_cache = st.checkbox(
+            "Enable Response Cache",
+            value=True,
+            help="Cache LLM responses to avoid redundant calls (faster for similar products)"
+        )
+        set_cache_enabled(enable_cache)
+    with col_cache2:
+        if cache_stats["size"] > 0:
+            st.info(f"Cache: {cache_stats['size']} entries")
+
     # Generate button
     if st.button("Generate All Descriptions", type="primary", disabled=st.session_state.catalog_df is None):
-        run_generation(tone, quality_threshold)
+        run_generation(tone, quality_threshold, concurrency)
 
 
-def run_generation(tone: str, quality_threshold: int):
+def run_generation(tone: str, quality_threshold: int, concurrency: int = 5):
     """Run the batch generation process."""
     df = st.session_state.catalog_df
 
@@ -305,12 +328,13 @@ def run_generation(tone: str, quality_threshold: int):
         status.write(f"✓ Generated: {product_name}")
 
     try:
-        # Run batch generation
+        # Run batch generation with concurrency
         results = run_batch(
             df=df,
             tone=tone,
             brand_voice_guide=st.session_state.brand_voice_guide,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            concurrency=concurrency
         )
 
         # Check consistency
@@ -333,6 +357,7 @@ def run_generation(tone: str, quality_threshold: int):
         avg_quality = sum(r["quality_score"] for r in results) / total if total > 0 else 0
         avg_time = sum(r["generation_time_ms"] for r in results) / total if total > 0 else 0
         total_retries = sum(r["retry_count"] for r in results)
+        cache_stats = get_cache_stats()
 
         st.markdown("### Summary")
         col1, col2, col3, col4 = st.columns(4)
@@ -340,6 +365,9 @@ def run_generation(tone: str, quality_threshold: int):
         col2.metric("Avg Quality Score", f"{avg_quality:.1f}/10")
         col3.metric("Avg Time/SKU", f"{avg_time:.0f}ms")
         col4.metric("Consistency Warnings", len(consistency_warnings))
+
+        if cache_stats["size"] > 0:
+            st.info(f"📦 Cache populated with {cache_stats['size']} responses")
 
         if total_retries > 0:
             st.info(f"Total retries across all products: {total_retries}")
